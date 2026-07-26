@@ -21,11 +21,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   async function loadProfile(uid: string): Promise<Profile | null> {
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', uid)
+      .maybeSingle();
+
     if (error) {
-      console.error('Failed to load profile:', error.message);
+      console.error(error.message);
       return null;
     }
+
     setProfile(data as Profile | null);
     return data as Profile | null;
   }
@@ -35,7 +41,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
+
       setSession(session);
+
       if (session?.user) {
         loadProfile(session.user.id).finally(() => {
           if (mounted) setLoading(false);
@@ -45,26 +53,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
+
       setSession(session);
+
       if (event === 'SIGNED_OUT') {
         setProfile(null);
         setLoading(false);
         return;
       }
+
       if (session?.user) {
-        (async () => {
-          // Retry profile load — the handle_new_user trigger may still be running
-          let retries = 0;
-          let p: Profile | null = null;
-          while (retries < 3 && !p) {
-            p = await loadProfile(session.user.id);
-            if (!p) await new Promise((r) => setTimeout(r, 500));
-            retries++;
-          }
+        loadProfile(session.user.id).finally(() => {
           if (mounted) setLoading(false);
-        })();
+        });
       } else {
         setProfile(null);
         setLoading(false);
@@ -73,29 +78,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       mounted = false;
-      sub.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 
   async function signIn(email: string, password: string) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    return {
+      error: error?.message ?? null,
+    };
   }
 
+  // ✅ UPDATED SIGNUP FUNCTION
   async function signUp(email: string, password: string, fullName: string) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } },
+      options: {
+        data: {
+          full_name: fullName,
+        },
+        emailRedirectTo: window.location.origin,
+      },
     });
-    if (error) return { error: error.message };
-    // If signup returned a session (email confirmation off), load the profile
+
+    if (error) {
+      return { error: error.message };
+    }
+
     if (data.session?.user) {
-      // Give the trigger time to create the profile row
-      await new Promise((r) => setTimeout(r, 800));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       await loadProfile(data.session.user.id);
     }
-    return { error: null };
+
+    return {
+      error: null,
+    };
   }
 
   async function signOut() {
@@ -105,7 +127,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function refreshProfile() {
-    if (session?.user) await loadProfile(session.user.id);
+    if (session?.user) {
+      await loadProfile(session.user.id);
+    }
   }
 
   return (
@@ -128,6 +152,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+
+  if (!ctx) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+
   return ctx;
 }
