@@ -19,35 +19,35 @@ export function useProducts(filter: {
   const filterKey = JSON.stringify(filter);
 
   useEffect(() => {
-    let query = supabase
-  .from('products')
-  .select(`
-    *,
-    category:categories!products_category_id_fkey(*)
-  `)
-  .eq('is_active', true);
-
     const f = JSON.parse(filterKey) as typeof filter;
-    if (f.category) {
-  query = query.eq('categories.slug', f.category);
-}
-    if (f.search) query = query.ilike('name', `%${f.search}%`);
-    if (f.featured) query = query.eq('is_featured', true);
-    if (f.isNew) query = query.eq('is_new', true);
-    if (f.bestSeller) query = query.eq('is_best_seller', true);
-    if (typeof f.minPrice === 'number') query = query.gte('price', f.minPrice);
-    if (typeof f.maxPrice === 'number') query = query.lte('price', f.maxPrice);
 
-    switch (f.sort) {
-      case 'price-asc': query = query.order('price', { ascending: true }); break;
-      case 'price-desc': query = query.order('price', { ascending: false }); break;
-      case 'popular': query = query.order('review_count', { ascending: false }); break;
-      default: query = query.order('created_at', { ascending: false });
-    }
+    const buildQuery = () => {
+      let q = supabase
+        .from('products')
+        .select(f.category ? '*, category:categories!inner(*)' : '*, category:categories(*)')
+        .eq('is_active', true);
 
-    if (f.limit) query = query.limit(f.limit);
+      if (f.category) q = q.eq('category.slug', f.category);
+      if (f.search) q = q.ilike('name', `%${f.search}%`);
+      if (f.featured) q = q.eq('is_featured', true);
+      if (f.isNew) q = q.eq('is_new', true);
+      if (f.bestSeller) q = q.eq('is_best_seller', true);
+      if (typeof f.minPrice === 'number') q = q.gte('price', f.minPrice);
+      if (typeof f.maxPrice === 'number') q = q.lte('price', f.maxPrice);
 
-    query.then(({ data, error }) => {
+      switch (f.sort) {
+        case 'price-asc': q = q.order('price', { ascending: true }); break;
+        case 'price-desc': q = q.order('price', { ascending: false }); break;
+        case 'popular': q = q.order('review_count', { ascending: false }); break;
+        default: q = q.order('created_at', { ascending: false });
+      }
+
+      if (f.limit) q = q.limit(f.limit);
+
+      return q;
+    };
+
+    buildQuery().then(({ data, error }) => {
       if (error) console.error(error);
       setProducts((data ?? []) as Product[]);
       setLoading(false);
@@ -57,7 +57,10 @@ export function useProducts(filter: {
     const channel = supabase
       .channel('products-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
-        query.then(({ data }) => setProducts((data ?? []) as Product[]));
+        buildQuery().then(({ data, error }) => {
+          if (error) console.error(error);
+          setProducts((data ?? []) as Product[]);
+        });
       })
       .subscribe();
 
@@ -78,10 +81,7 @@ export function useProduct(slug: string | undefined) {
     }
     supabase
       .from('products')
-      .select(`
-  *,
-  category:categories!products_category_id_fkey(*)
-`)
+      .select('*, category:categories(*)')
       .eq('slug', slug)
       .maybeSingle()
       .then(({ data, error }) => {
