@@ -19,10 +19,18 @@ export function useProducts(filter: {
   const filterKey = JSON.stringify(filter);
 
   useEffect(() => {
-    let query = supabase.from('products').select('*, category:categories(*)').eq('is_active', true);
+    let query = supabase
+  .from('products')
+  .select(`
+    *,
+    category:categories!products_category_id_fkey(*)
+  `)
+  .eq('is_active', true);
 
     const f = JSON.parse(filterKey) as typeof filter;
-    if (f.category) query = query.eq('category.slug', f.category);
+    if (f.category) {
+  query = query.eq('categories.slug', f.category);
+}
     if (f.search) query = query.ilike('name', `%${f.search}%`);
     if (f.featured) query = query.eq('is_featured', true);
     if (f.isNew) query = query.eq('is_new', true);
@@ -70,7 +78,10 @@ export function useProduct(slug: string | undefined) {
     }
     supabase
       .from('products')
-      .select('*, category:categories(*)')
+      .select(`
+  *,
+  category:categories!products_category_id_fkey(*)
+`)
       .eq('slug', slug)
       .maybeSingle()
       .then(({ data, error }) => {
